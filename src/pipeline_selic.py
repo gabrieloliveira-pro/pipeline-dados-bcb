@@ -1,48 +1,67 @@
 import os
+import logging
+from datetime import datetime
 import requests
 import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Configuração do logging
+os.makedirs("logs", exist_ok=True)
+nome_arquivo_log = f"logs/pipeline_{datetime.now().strftime('%Y-%m-%d')}.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(nome_arquivo_log, encoding="utf-8"),
+        logging.StreamHandler()  # também mostra no terminal
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+
 def buscar_dados_selic():
     url = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.11/dados/ultimos/20?formato=json"
     response = requests.get(url)
-
     if response.status_code != 200:
-        print(f'Status: {response.status_code}')
-        print(f'Resposta: {response.text}')
+        logger.error(f"Falha na requisicao a API. Status: {response.status_code} - Resposta: {response.text}")
     response.raise_for_status()
-    return response.json()
+    dados = response.json()
+    logger.info(f"{len(dados)} registros recebidos da API do BCB.")
+    return dados
+
 
 def conectar_db():
     return psycopg2.connect(
-        host=os.getenv('DB_HOST'),
-        port=os.getenv('DB_PORT'),
-        dbname=os.getenv('DB_NAME'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD')
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD")
     )
 
-def inserior_dados(conexao, dados):
+
+def inserir_dados(conexao, dados):
     cursor = conexao.cursor()
     inseridos = 0
 
     for registro in dados:
-        data_formatada = registro['data'] # formato 'dd/mm/aaaa'
-        dia, mes, ano = data_formatada.split('/')
-        data_sql = f'{ano},{mes},{dia}'
-        valor = registro ['valor']
+        data_formatada = registro["data"]
+        dia, mes, ano = data_formatada.split("/")
+        data_sql = f"{ano}-{mes}-{dia}"
+        valor = registro["valor"]
 
         cursor.execute(
             """
             INSERT INTO selic (data, valor)
-            VALUES(%s, %s)
+            VALUES (%s, %s)
             ON CONFLICT (data) DO NOTHING
             """,
             (data_sql, valor)
         )
-
         if cursor.rowcount > 0:
             inseridos += 1
 
@@ -50,9 +69,14 @@ def inserior_dados(conexao, dados):
     cursor.close()
     return inseridos
 
-if __name__ == '__main__':
-    dados = buscar_dados_selic()
-    conexao = conectar_db()
-    total_inseridos = inserior_dados(conexao, dados)
-    conexao.close()
-    print(f'Pipeline executado. {total_inseridos} novos registros inseridos de {len(dados)} recebidos da API')
+
+if __name__ == "__main__":
+    logger.info("Iniciando execucao do pipeline SELIC.")
+    try:
+        dados = buscar_dados_selic()
+        conexao = conectar_db()
+        total_inseridos = inserir_dados(conexao, dados)
+        conexao.close()
+        logger.info(f"Pipeline executado com sucesso. {total_inseridos} novos registros inseridos de {len(dados)} recebidos.")
+    except Exception as e:
+        logger.error(f"Erro na execucao do pipeline: {e}")
