@@ -33,6 +33,25 @@ def buscar_dados_selic():
     logger.info(f"{len(dados)} registros recebidos da API do BCB.")
     return dados
 
+def validar_registro(registro):
+    data = registro.get("data")
+    valor = registro.get("valor")
+
+    if not data or not valor:
+        logger.warning(f"Registro descartado por campo vazio: {registro}")
+        return False
+
+    try:
+        valor_float = float(valor)
+    except ValueError:
+        logger.warning(f"Registro descartado por valor nao numerico: {registro}")
+        return False
+
+    if valor_float < 0 or valor_float > 100:
+        logger.warning(f"Registro descartado por valor fora do range esperado: {registro}")
+        return False
+
+    return True
 
 def conectar_db():
     return psycopg2.connect(
@@ -47,8 +66,13 @@ def conectar_db():
 def inserir_dados(conexao, dados):
     cursor = conexao.cursor()
     inseridos = 0
+    descartados = 0
 
     for registro in dados:
+        if not validar_registro(registro):
+            descartados += 1
+            continue
+
         data_formatada = registro["data"]
         dia, mes, ano = data_formatada.split("/")
         data_sql = f"{ano}-{mes}-{dia}"
@@ -67,6 +91,10 @@ def inserir_dados(conexao, dados):
 
     conexao.commit()
     cursor.close()
+
+    if descartados > 0:
+        logger.warning(f"{descartados} registros descartados na validacao.")
+
     return inseridos
 
 
