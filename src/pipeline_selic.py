@@ -98,7 +98,7 @@ def inserir_dados(conexao, dados):
     return inseridos
 
 
-if __name__ == "__main__":
+def main():
     logger.info("Iniciando execucao do pipeline SELIC.")
     try:
         dados = buscar_dados_selic()
@@ -108,3 +108,7 @@ if __name__ == "__main__":
         logger.info(f"Pipeline executado com sucesso. {total_inseridos} novos registros inseridos de {len(dados)} recebidos.")
     except Exception as e:
         logger.error(f"Erro na execucao do pipeline: {e}")
+
+
+if __name__ == "__main__":
+    main()
